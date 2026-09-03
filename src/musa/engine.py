@@ -27,7 +27,21 @@ class MusaEngine:
             return None, []
 
         # 2. Generate
-        generator = Generator(self.config.anthropic_api_key)
+        import os
+        # Priority: Check Streamlit secrets first, then env vars
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            # Fallback for local development if using a .env file
+            from musa.config import Config
+            try:
+                api_key = Config().groq_api_key
+            except:
+                api_key = None
+
+        if not api_key:
+            return "Error: GROQ_API_KEY not found in environment secrets.", []
+
+        generator = Generator(api_key)
         answer = generator.generate_answer(query, docs)
 
         # 3. Cite

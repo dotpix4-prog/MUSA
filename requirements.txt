@@ -1,9 +1,8 @@
-anthropic
+groq
 faiss-cpu
 httpx
 streamlit
 typer
 rich
 beautifulsoup4
-sentence-transformers
 numpy

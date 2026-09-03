@@ -1,12 +1,12 @@
 import re
-from anthropic import Anthropic
+from groq import Groq
 from musa.storage.models import Document
 
 class Generator:
-    """Handles LLM-based answer generation using a RAG pipeline."""
+    """Handles LLM-based answer generation using a RAG pipeline via Groq."""
 
     def __init__(self, api_key: str) -> None:
-        self.client = Anthropic(api_key=api_key)
+        self.client = Groq(api_key=api_key)
         self.system_prompt = (
             "You are a helpful and precise search assistant. Use the provided context "
             "to answer the user's query.\n\n"
@@ -33,18 +33,21 @@ class Generator:
     def generate_answer(self, query: str, docs: list[Document]) -> str:
         """Generates a synthesized answer based on the retrieved documents."""
         context = self._format_context(docs)
-        user_content = f"Query: {query}\n\nContext:\n{context}"
 
-        response = self.client.messages.create(
-            model="claude-3-5-sonnet-20240620",
+        # Groq uses a standard OpenAI-like chat completion format
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": f"Query: {query}\n\nContext:\n{context}"}
+        ]
+
+        response = self.client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.1, # Keep it factual
             max_tokens=1024,
-            system=self.system_prompt,
-            messages=[
-                {"role": "user", "content": user_content}
-            ],
         )
 
-        return response.content[0].text
+        return response.choices[0].message.content
 
     def extract_citations(self, answer: str, docs: list[Document]) -> list[Document]:
         """Extracts cited documents from the answer based on [n] patterns."""
