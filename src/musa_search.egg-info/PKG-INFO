@@ -1,0 +1,60 @@
+Metadata-Version: 2.4
+Name: musa-search
+Version: 0.1.0
+Summary: A CLI-based AI search engine
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: typer>=0.12
+Requires-Dist: rich>=13.0
+
+# MUSA
+
+**MUSA — AI-Powered Search Engine**
+
+MUSA is a command-line search engine being built from the ground up using
+Python.
+
+The project aims to combine:
+
+- Web crawling
+- Full-text information retrieval
+- BM25 ranking
+- Semantic search
+- Hybrid retrieval
+- Search result ranking
+- LLM-powered question answering
+- Retrieval-Augmented Generation (RAG)
+- Source citations
+- Search evaluation
+
+## Current Status
+
+🚧 Early development
+
+Current features:
+
+- CLI interface
+- Search command
+- Index statistics command
+- Automated CLI tests
+
+## Planned Architecture
+
+```text
+User
+ ↓
+CLI
+ ↓
+Query Processing
+ ↓
+Search Engine
+ ├── Lexical Retrieval
+ ├── Semantic Retrieval
+ └── Ranking
+ ↓
+Relevant Documents
+ ↓
+LLM
+ ↓
+Cited Answer
+```
