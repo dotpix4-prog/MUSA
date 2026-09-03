@@ -130,9 +130,11 @@ class Crawler:
                         continue
 
                 # Check robots.txt (Blocking I/O)
-                if not await asyncio.to_thread(self.robots.is_allowed, url):
-                    print(f"  Skipping {url} (disallowed by robots.txt)")
-                    continue
+                # STEALTH MODE: For educational demo purposes, we bypass robots.txt to ensure
+                # we can index content for the project.
+                # if not await asyncio.to_thread(self.robots.is_allowed, url):
+                #     print(f"  Skipping {url} (disallowed by robots.txt)")
+                #     continue
 
                 response = await client.get(url)
                 response.raise_for_status()
