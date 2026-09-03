@@ -1,34 +1,48 @@
-import streamlit as st
+```python
+import asyncio
 import sys
 from pathlib import Path
 
-# Fix for Streamlit Cloud: Add the 'src' directory to sys.path
-# This allows the app to find the 'musa' package
-root_dir = Path(__file__).resolve().parent.parent
-sys.path.append(str(root_dir))
+import streamlit as st
 
+# ---------------------------------------------------------
+# Make the src directory importable on Streamlit Cloud.
+# ---------------------------------------------------------
+root_dir = Path(__file__).resolve().parent.parent
+
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from musa.crawler.crawler import Crawler
 from musa.engine import MusaEngine
 
-# Page Config
+
+# ---------------------------------------------------------
+# Page configuration
+# ---------------------------------------------------------
 st.set_page_config(
     page_title="MUSA | AI Search Engine",
     page_icon="🔍",
-    layout="wide"
+    layout="wide",
 )
 
-# Custom CSS for a cleaner look
-st.markdown("""
+
+# ---------------------------------------------------------
+# Styling
+# ---------------------------------------------------------
+st.markdown(
+    """
     <style>
     .main {
         background-color: #f8f9fa;
     }
-    .stButton>button {
+
+    .stButton > button {
         width: 100%;
         border-radius: 5px;
         height: 3em;
-        background-color: #ff4b4b;
-        color: white;
     }
+
     .source-card {
         padding: 10px;
         border-radius: 10px;
@@ -37,87 +51,277 @@ st.markdown("""
         background-color: white;
     }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# Initialize Engine in session state
+
+# ---------------------------------------------------------
+# Engine
+# ---------------------------------------------------------
 if "engine" not in st.session_state:
     st.session_state.engine = MusaEngine()
 
 engine = st.session_state.engine
 
+
+# ---------------------------------------------------------
 # Sidebar
+# ---------------------------------------------------------
 with st.sidebar:
     st.title("⚙️ MUSA Control")
+
     st.markdown("---")
 
-    st.subheader("Index Stats")
     stats = engine.get_stats()
-    st.metric("Total Documents", stats["document_count"])
+
+    st.metric(
+        "Total Documents",
+        stats["document_count"],
+    )
 
     st.markdown("---")
-    if st.button("🗑️ Clear Index"):
+
+    if st.button(
+        "🗑️ Clear Index",
+        use_container_width=True,
+    ):
         engine.clear_index()
         st.rerun()
 
     st.markdown("---")
-    st.markdown("### 🛠️ Technical Stack")
-    st.caption("• FAISS Vector Index")
-    st.caption("• Hybrid RRF Ranking")
-    st.caption("• Async Crawler Pool")
-    st.caption("• Claude-3-5-Sonnet RAG")
 
-# Main UI
+    st.markdown(
+        "### 🛠️ Current Stack"
+    )
+
+    st.caption("• Streamlit")
+    st.caption("• Async HTTP crawler")
+    st.caption("• SQLite + FTS5")
+    st.caption("• FAISS vector index")
+    st.caption("• Hybrid retrieval")
+    st.caption("• Groq-powered QA")
+
+
+# ---------------------------------------------------------
+# Main
+# ---------------------------------------------------------
 st.title("🔍 MUSA AI Search")
-st.markdown("The AI-powered search engine that reads websites in real-time.")
 
-tab1, tab2 = st.tabs(["💬 Ask MUSA", "🌐 Index Website"])
+st.markdown(
+    "An experimental AI-powered search engine "
+    "that crawls, indexes and retrieves web content."
+)
 
-# --- TAB 1: ASK ---
+
+tab1, tab2 = st.tabs(
+    [
+        "💬 Ask MUSA",
+        "🌐 Index Website",
+    ]
+)
+
+
+# =========================================================
+# ASK TAB
+# =========================================================
 with tab1:
-    query = st.text_input("What would you like to know?", placeholder="Ask anything about your indexed sites...")
+
+    query = st.text_input(
+        "What would you like to know?",
+        placeholder=(
+            "Ask something about your indexed websites..."
+        ),
+    )
 
     if query:
-        with st.spinner("Reading documents and thinking..."):
-            answer, citations = engine.ask(query)
 
-            if answer:
-                st.markdown("### 🤖 MUSA AI Answer")
-                st.markdown(answer)
+        with st.spinner(
+            "Searching MUSA..."
+        ):
 
-                if citations:
-                    st.markdown("---")
-                    st.markdown("#### 📚 Sources")
-                    for i, doc in enumerate(citations, 1):
-                        st.markdown(f"""
-                        <div class="source-card">
-                            <strong>{i}. {doc.title}</strong><br>
-                            <a href="{doc.url}" target="_blank">{doc.url}</a>
-                        </div>
-                        """, unsafe_allow_html=True)
-            else:
-                st.warning("MUSA couldn't find enough relevant information to answer that question. Try indexing more pages!")
+            try:
+                answer, citations = engine.ask(
+                    query
+                )
 
-# --- TAB 2: INDEX ---
+                if answer:
+
+                    st.markdown(
+                        "### 🤖 MUSA Answer"
+                    )
+
+                    st.markdown(
+                        answer
+                    )
+
+                    if citations:
+
+                        st.markdown("---")
+                        st.markdown(
+                            "#### 📚 Sources"
+                        )
+
+                        for i, doc in enumerate(
+                            citations,
+                            1,
+                        ):
+                            st.markdown(
+                                f"""
+                                <div class="source-card">
+                                    <strong>
+                                        {i}. {doc.title}
+                                    </strong>
+                                    <br>
+                                    <a href="{doc.url}"
+                                       target="_blank">
+                                        {doc.url}
+                                    </a>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                else:
+
+                    st.warning(
+                        "MUSA couldn't find enough "
+                        "relevant information."
+                    )
+
+            except Exception as e:
+
+                st.error(
+                    f"Search error: "
+                    f"{type(e).__name__}: {e}"
+                )
+
+
+# =========================================================
+# CRAWLER TAB
+# =========================================================
 with tab2:
-    st.subheader("Add Knowledge")
-    col1, col2 = st.columns([3, 1])
 
-    with col1:
-        url = st.text_input("Website URL", placeholder="https://example.com")
-    with col2:
-        pages = st.number_input("Max Pages", min_value=1, max_value=100, value=10)
+    st.subheader(
+        "🌐 Add Knowledge"
+    )
 
-    if st.button("Start Crawling"):
-        if not url:
-            st.error("Please enter a URL first!")
+    url = st.text_input(
+        "Website URL",
+        placeholder=(
+            "https://example.com"
+        ),
+        key="crawl_url",
+    )
+
+    pages = st.number_input(
+        "Maximum Pages",
+        min_value=1,
+        max_value=50,
+        value=3,
+        step=1,
+    )
+
+    depth = st.number_input(
+        "Maximum Crawl Depth",
+        min_value=0,
+        max_value=5,
+        value=2,
+        step=1,
+    )
+
+    if st.button(
+        "🚀 Start Crawling",
+        use_container_width=True,
+    ):
+
+        if not url.strip():
+
+            st.error(
+                "Please enter a URL first."
+            )
+
         else:
-            with st.status(f"Crawling {url}...", expanded=True) as status:
-                st.write("Initializing Async Worker Pool...")
+
+            logs = []
+
+            log_area = st.empty()
+
+            def log(message: str) -> None:
+
+                logs.append(message)
+
+                # Keep the displayed output
+                # from growing uncontrollably.
+                visible_logs = logs[-100:]
+
+                log_area.code(
+                    "\n".join(
+                        visible_logs
+                    ),
+                    language="text",
+                )
+
+            with st.status(
+                f"Crawling {url}...",
+                expanded=True,
+            ) as status:
+
+                log(
+                    "Initializing MUSA crawler..."
+                )
+
                 try:
-                    count = engine.crawl(url, max_pages=pages)
-                    st.write(f"Successfully indexed {count} total documents.")
-                    status.update(label="Crawling Complete!", state="complete", expanded=False)
+
+                    crawler = Crawler(
+                        database=engine.database,
+                        max_pages=int(
+                            pages
+                        ),
+                        max_depth=int(
+                            depth
+                        ),
+                        same_domain=True,
+                        concurrency=2,
+                        request_delay=1.0,
+                        log_callback=log,
+                    )
+
+                    result = asyncio.run(
+                        crawler.crawl(
+                            url.strip()
+                        )
+                    )
+
+                    log("")
+                    log(
+                        f"Indexed documents in database: "
+                        f"{result}"
+                    )
+
+                    status.update(
+                        label=(
+                            "Crawl Complete"
+                        ),
+                        state="complete",
+                        expanded=True,
+                    )
+
                 except Exception as e:
-                    st.error(f"An error occurred: {e}")
-                    status.update(label="Crawling Failed", state="error")
-            st.rerun()
+
+                    log(
+                        f"[FATAL ERROR] "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+                    st.error(
+                        f"Crawler failed: "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+                    status.update(
+                        label="Crawl Failed",
+                        state="error",
+                        expanded=True,
+                    )
+```
