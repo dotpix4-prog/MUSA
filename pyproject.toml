@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "musa-search"
+version = "0.1.0"
+description = "MUSA AI Search Engine"
+requires-python = ">=3.10"
+dependencies = [
+    "groq",
+    "faiss-cpu",
+    "httpx",
+    "streamlit",
+    "typer",
+    "rich",
+    "beautifulsoup4",
+    "numpy",
+    "scikit-learn"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
