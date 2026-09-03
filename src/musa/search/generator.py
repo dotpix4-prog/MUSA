@@ -42,9 +42,9 @@ class Generator:
         # Try a few different stable model IDs in order of availability
         models_to_try = [
             "llama-3.3-70b-versatile",
-            "llama3-8b-8192",
-            "mixtral-8x7b-32768",
-            "llama3-70b-8192"
+            "llama-3.1-8b-instant",
+            "openai/gpt-oss-120b",
+            "meta-llama/llama-4-scout-17b-16e-instruct"
         ]
 
         last_error = None
