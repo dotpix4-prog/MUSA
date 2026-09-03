@@ -1,44 +1,34 @@
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-import pickle
-import os
+from sklearn.feature_extraction.text import HashingVectorizer
 from pathlib import Path
 
 class Embedder:
     """
-    Lightweight embedding system using TF-IDF.
-    This replaces SentenceTransformers to ensure cloud compatibility.
+    Stateless embedding system using HashingVectorizer.
+    This provides fixed-size vectors (384-dim) without requiring a fit/train step,
+    making it perfect for real-time crawling and cloud deployment.
     """
-    def __init__(self, index_path: str = "data/tfidf.pkl"):
-        self.index_path = Path(index_path)
-        self.vectorizer = TfidfVectorizer(stop_words='english')
-        self._load_vectorizer()
-
-    def _load_vectorizer(self):
-        if self.index_path.exists():
-            with open(self.index_path, "rb") as f:
-                self.vectorizer = pickle.load(f)
-
-    def save_vectorizer(self):
-        self.index_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.index_path, "wb") as f:
-            pickle.dump(self.vectorizer, f)
+    def __init__(self, n_features: int = 384) -> None:
+        self.n_features = n_features
+        # HashingVectorizer is stateless - it doesn't need to be 'fit' to a corpus.
+        self.vectorizer = HashingVectorizer(n_features=self.n_features, alternate_sign=False)
 
     def encode(self, text: str) -> list[float]:
-        # For TF-IDF, the vectorizer needs a corpus to fit.
-        # Since this is used for single queries, we use the already fitted vectorizer.
+        """Turns text into a fixed-size vector."""
         try:
+            # Transform returns a sparse matrix; we convert to a dense numpy array
             vector = self.vectorizer.transform([text]).toarray()[0]
             return vector.tolist()
-        except Exception:
-            # If not yet fitted, return a zero vector of the expected size
-            return [0.0] * 384 # Keep dim compatible for now
+        except Exception as e:
+            print(f"Embedding error: {e}")
+            return [0.0] * self.n_features
 
     @staticmethod
     def cosine_similarity(v1: list[float], v2: list[float]) -> float:
         a = np.array(v1)
         b = np.array(v2)
-        if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if norm_a == 0 or norm_b == 0:
             return 0.0
-        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+        return float(np.dot(a, b) / (norm_a * norm_b))
