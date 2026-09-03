@@ -1,4 +1,12 @@
 import streamlit as st
+import sys
+from pathlib import Path
+
+# Fix for Streamlit Cloud: Add the 'src' directory to sys.path
+# This allows the app to find the 'musa' package
+root_dir = Path(__file__).resolve().parent.parent
+sys.path.append(str(root_dir))
+
 from musa.engine import MusaEngine
 
 # Page Config
