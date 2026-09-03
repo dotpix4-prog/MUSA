@@ -1,4 +1,3 @@
-```python
 from urllib.parse import (
     parse_qsl,
     urlencode,
@@ -161,4 +160,3 @@ def normalize_url(
         return None
 
     return normalized
-```

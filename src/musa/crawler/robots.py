@@ -1,4 +1,3 @@
-```python
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -6,21 +5,19 @@ import httpx
 
 
 class Robots:
+
     def __init__(
         self,
-        user_agent: str = "MUSA/0.1",
-    ) -> None:
+        user_agent="MUSA/0.1"
+    ):
         self.user_agent = user_agent
-        self.parsers: dict[
-            str,
-            RobotFileParser,
-        ] = {}
+        self.parsers = {}
 
     async def is_allowed(
         self,
-        url: str,
-        client: httpx.AsyncClient,
-    ) -> bool:
+        url,
+        client,
+    ):
 
         parsed = urlparse(url)
 
@@ -29,8 +26,8 @@ class Robots:
 
         domain = parsed.netloc.lower()
 
-        # Already cached.
         if domain in self.parsers:
+
             return self.parsers[
                 domain
             ].can_fetch(
@@ -39,27 +36,33 @@ class Robots:
             )
 
         robots_url = (
-            f"{parsed.scheme}://"
-            f"{domain}/robots.txt"
+            "{}://{}/robots.txt".format(
+                parsed.scheme,
+                domain,
+            )
         )
 
         parser = RobotFileParser()
+
         parser.set_url(
             robots_url
         )
 
         try:
+
             response = await client.get(
                 robots_url,
                 timeout=10.0,
             )
 
-            # No robots.txt = allowed.
             if response.status_code == 404:
-                self.parsers[domain] = parser
+
+                self.parsers[
+                    domain
+                ] = parser
+
                 return True
 
-            # Server failure: fail closed.
             if response.status_code >= 400:
                 return False
 
@@ -67,7 +70,9 @@ class Robots:
                 response.text.splitlines()
             )
 
-            self.parsers[domain] = parser
+            self.parsers[
+                domain
+            ] = parser
 
             return parser.can_fetch(
                 self.user_agent,
@@ -78,10 +83,9 @@ class Robots:
             httpx.TimeoutException,
             httpx.RequestError,
         ):
-            # We couldn't verify the site's rules,
-            # so do not crawl.
+
             return False
 
         except Exception:
+
             return False
-```

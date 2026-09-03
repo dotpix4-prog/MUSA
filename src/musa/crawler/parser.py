@@ -1,4 +1,3 @@
-```python
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -150,4 +149,3 @@ def parse_html(html: str, base_url: str) -> dict:
         "content": content,
         "links": links,
     }
-```
