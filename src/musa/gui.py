@@ -1,25 +1,25 @@
 import asyncio
 import sys
 from pathlib import Path
-from musa.engine import MusaEngine
-from musa.crawler.crawler import Crawler
 
 import streamlit as st
 
 # ---------------------------------------------------------
-# Make the src directory importable on Streamlit Cloud.
+# Make src/ importable BEFORE importing the musa package.
 # ---------------------------------------------------------
-root_dir = Path(__file__).resolve().parent.parent
+SRC_DIR = Path(__file__).resolve().parent.parent
 
-if str(root_dir) not in sys.path:
-    sys.path.append(str(root_dir))
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
-from musa.crawler.crawler import Crawler
+# IMPORTANT:
+# These imports must come AFTER the sys.path fix.
 from musa.engine import MusaEngine
+from musa.crawler.crawler import Crawler
 
 
 # ---------------------------------------------------------
-# Page configuration
+# Streamlit page configuration
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="MUSA | AI Search Engine",
@@ -29,7 +29,7 @@ st.set_page_config(
 
 
 # ---------------------------------------------------------
-# Styling
+# Basic styling
 # ---------------------------------------------------------
 st.markdown(
     """
@@ -38,18 +38,16 @@ st.markdown(
         background-color: #f8f9fa;
     }
 
-    .stButton > button {
-        width: 100%;
-        border-radius: 5px;
-        height: 3em;
-    }
-
     .source-card {
-        padding: 10px;
+        padding: 12px;
         border-radius: 10px;
-        border: 1px solid #ddd;
+        border: 1px solid #dddddd;
         margin-bottom: 10px;
         background-color: white;
+    }
+
+    div.stButton > button {
+        width: 100%;
     }
     </style>
     """,
@@ -58,7 +56,7 @@ st.markdown(
 
 
 # ---------------------------------------------------------
-# Engine
+# Initialize engine once per Streamlit session
 # ---------------------------------------------------------
 if "engine" not in st.session_state:
     st.session_state.engine = MusaEngine()
@@ -70,16 +68,31 @@ engine = st.session_state.engine
 # Sidebar
 # ---------------------------------------------------------
 with st.sidebar:
+
     st.title("⚙️ MUSA Control")
 
     st.markdown("---")
 
-    stats = engine.get_stats()
+    try:
+        stats = engine.get_stats()
 
-    st.metric(
-        "Total Documents",
-        stats["document_count"],
-    )
+        st.metric(
+            "Indexed Documents",
+            stats.get("document_count", 0),
+        )
+
+    except Exception as e:
+
+        st.warning(
+            "Could not load database statistics."
+        )
+
+        st.caption(
+            "{}: {}".format(
+                type(e).__name__,
+                e,
+            )
+        )
 
     st.markdown("---")
 
@@ -87,35 +100,49 @@ with st.sidebar:
         "🗑️ Clear Index",
         use_container_width=True,
     ):
-        engine.clear_index()
-        st.rerun()
+
+        try:
+            engine.clear_index()
+            st.success("Index cleared.")
+            st.rerun()
+
+        except Exception as e:
+
+            st.error(
+                "Could not clear index: {}: {}".format(
+                    type(e).__name__,
+                    e,
+                )
+            )
 
     st.markdown("---")
 
-    st.markdown(
-        "### 🛠️ Current Stack"
-    )
+    st.markdown("### 🛠️ MUSA Stack")
 
     st.caption("• Streamlit")
+    st.caption("• Python")
     st.caption("• Async HTTP crawler")
+    st.caption("• BeautifulSoup")
     st.caption("• SQLite + FTS5")
-    st.caption("• FAISS vector index")
-    st.caption("• Hybrid retrieval")
-    st.caption("• Groq-powered QA")
+    st.caption("• FAISS")
+    st.caption("• Groq")
 
 
 # ---------------------------------------------------------
-# Main
+# Main heading
 # ---------------------------------------------------------
 st.title("🔍 MUSA AI Search")
 
-st.markdown(
+st.write(
     "An experimental AI-powered search engine "
     "that crawls, indexes and retrieves web content."
 )
 
 
-tab1, tab2 = st.tabs(
+# ---------------------------------------------------------
+# Tabs
+# ---------------------------------------------------------
+search_tab, crawl_tab = st.tabs(
     [
         "💬 Ask MUSA",
         "🌐 Index Website",
@@ -124,87 +151,124 @@ tab1, tab2 = st.tabs(
 
 
 # =========================================================
-# ASK TAB
+# SEARCH TAB
 # =========================================================
-with tab1:
+with search_tab:
+
+    st.subheader("Ask MUSA")
 
     query = st.text_input(
         "What would you like to know?",
         placeholder=(
-            "Ask something about your indexed websites..."
+            "Ask something about the websites "
+            "you have indexed..."
         ),
+        key="search_query",
     )
 
-    if query:
+    if st.button(
+        "🔎 Search",
+        use_container_width=True,
+    ):
 
-        with st.spinner(
-            "Searching MUSA..."
-        ):
+        if not query.strip():
 
-            try:
-                answer, citations = engine.ask(
-                    query
-                )
+            st.warning(
+                "Enter a question first."
+            )
 
-                if answer:
+        else:
 
-                    st.markdown(
-                        "### 🤖 MUSA Answer"
+            with st.spinner(
+                "Searching MUSA..."
+            ):
+
+                try:
+
+                    answer, citations = engine.ask(
+                        query.strip()
                     )
 
-                    st.markdown(
-                        answer
-                    )
+                    if answer:
+
+                        st.markdown(
+                            "### 🤖 MUSA Answer"
+                        )
+
+                        st.markdown(answer)
+
+                    else:
+
+                        st.warning(
+                            "MUSA could not generate "
+                            "an answer."
+                        )
 
                     if citations:
 
                         st.markdown("---")
+
                         st.markdown(
-                            "#### 📚 Sources"
+                            "### 📚 Sources"
                         )
 
-                        for i, doc in enumerate(
+                        for index, doc in enumerate(
                             citations,
-                            1,
+                            start=1,
                         ):
+
+                            title = getattr(
+                                doc,
+                                "title",
+                                None,
+                            ) or "Untitled"
+
+                            url = getattr(
+                                doc,
+                                "url",
+                                None,
+                            ) or ""
+
                             st.markdown(
-                                f"""
+                                """
                                 <div class="source-card">
-                                    <strong>
-                                        {i}. {doc.title}
-                                    </strong>
+                                    <strong>{}. {}</strong>
                                     <br>
-                                    <a href="{doc.url}"
+                                    <a href="{}"
                                        target="_blank">
-                                        {doc.url}
+                                       {}
                                     </a>
                                 </div>
-                                """,
+                                """.format(
+                                    index,
+                                    title,
+                                    url,
+                                    url,
+                                ),
                                 unsafe_allow_html=True,
                             )
 
-                else:
+                except Exception as e:
 
-                    st.warning(
-                        "MUSA couldn't find enough "
-                        "relevant information."
+                    st.error(
+                        "Search failed: {}: {}".format(
+                            type(e).__name__,
+                            e,
+                        )
                     )
-
-            except Exception as e:
-
-                st.error(
-                    f"Search error: "
-                    f"{type(e).__name__}: {e}"
-                )
 
 
 # =========================================================
 # CRAWLER TAB
 # =========================================================
-with tab2:
+with crawl_tab:
 
     st.subheader(
-        "🌐 Add Knowledge"
+        "🌐 Crawl a Website"
+    )
+
+    st.write(
+        "Add a website to MUSA's search index."
     )
 
     url = st.text_input(
@@ -215,31 +279,44 @@ with tab2:
         key="crawl_url",
     )
 
-    pages = st.number_input(
-        "Maximum Pages",
-        min_value=1,
-        max_value=50,
-        value=3,
-        step=1,
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        max_pages = st.number_input(
+            "Maximum Pages",
+            min_value=1,
+            max_value=50,
+            value=5,
+            step=1,
+        )
+
+    with col2:
+
+        max_depth = st.number_input(
+            "Maximum Crawl Depth",
+            min_value=0,
+            max_value=5,
+            value=1,
+            step=1,
+        )
+
+    st.caption(
+        "MUSA respects robots.txt and will not crawl "
+        "pages that disallow the crawler."
     )
 
-    depth = st.number_input(
-        "Maximum Crawl Depth",
-        min_value=0,
-        max_value=5,
-        value=2,
-        step=1,
-    )
-
-    if st.button(
+    start_crawl = st.button(
         "🚀 Start Crawling",
         use_container_width=True,
-    ):
+    )
+
+    if start_crawl:
 
         if not url.strip():
 
             st.error(
-                "Please enter a URL first."
+                "Please enter a URL."
             )
 
         else:
@@ -248,44 +325,45 @@ with tab2:
 
             log_area = st.empty()
 
-            def log(message: str) -> None:
+            def log_callback(message):
 
-                logs.append(message)
+                logs.append(
+                    str(message)
+                )
 
-                # Keep the displayed output
-                # from growing uncontrollably.
-                visible_logs = logs[-100:]
+                # Keep only the latest 150 lines
+                # so Streamlit does not grow indefinitely.
+                visible = logs[-150:]
 
                 log_area.code(
-                    "\n".join(
-                        visible_logs
-                    ),
+                    "\n".join(visible),
                     language="text",
                 )
 
             with st.status(
-                f"Crawling {url}...",
+                "Starting crawler...",
                 expanded=True,
             ) as status:
 
-                log(
-                    "Initializing MUSA crawler..."
-                )
-
                 try:
+
+                    log_callback(
+                        "Initializing MUSA crawler..."
+                    )
 
                     crawler = Crawler(
                         database=engine.database,
                         max_pages=int(
-                            pages
+                            max_pages
                         ),
                         max_depth=int(
-                            depth
+                            max_depth
                         ),
                         same_domain=True,
                         concurrency=2,
                         request_delay=1.0,
-                        log_callback=log,
+                        max_retries=3,
+                        log_callback=log_callback,
                     )
 
                     result = asyncio.run(
@@ -294,34 +372,42 @@ with tab2:
                         )
                     )
 
-                    log("")
-                    log(
-                        f"Indexed documents in database: "
-                        f"{result}"
+                    log_callback("")
+                    log_callback(
+                        "Crawl completed."
+                    )
+
+                    log_callback(
+                        "Documents currently indexed: {}".format(
+                            result
+                        )
                     )
 
                     status.update(
-                        label=(
-                            "Crawl Complete"
-                        ),
+                        label="✅ Crawl Complete",
                         state="complete",
                         expanded=True,
                     )
 
                 except Exception as e:
 
-                    log(
-                        f"[FATAL ERROR] "
-                        f"{type(e).__name__}: {e}"
-                    )
-
-                    st.error(
-                        f"Crawler failed: "
-                        f"{type(e).__name__}: {e}"
+                    log_callback("")
+                    log_callback(
+                        "[FATAL ERROR] {}: {}".format(
+                            type(e).__name__,
+                            e,
+                        )
                     )
 
                     status.update(
-                        label="Crawl Failed",
+                        label="❌ Crawl Failed",
                         state="error",
                         expanded=True,
+                    )
+
+                    st.error(
+                        "Crawler failed: {}: {}".format(
+                            type(e).__name__,
+                            e,
+                        )
                     )
