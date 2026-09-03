@@ -34,20 +34,33 @@ class Generator:
         """Generates a synthesized answer based on the retrieved documents."""
         context = self._format_context(docs)
 
-        # Groq uses a standard OpenAI-like chat completion format
         messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": f"Query: {query}\n\nContext:\n{context}"}
         ]
 
-        response = self.client.chat.completions.create(
-            model="llama3-8b-8192",
-            messages=messages,
-            temperature=0.1, # Keep it factual
-            max_tokens=1024,
-        )
+        # Try a few different stable model IDs in order of availability
+        models_to_try = [
+            "llama-3.3-70b-versatile",
+            "llama3-8b-8192",
+            "mixtral-8x7b-32768",
+            "llama3-70b-8192"
+        ]
 
-        return response.choices[0].message.content
+        for model in models_to_try:
+            try:
+                response = self.client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=1024,
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                print(f"Model {model} failed: {e}")
+                continue
+
+        return "Error: I couldn't connect to any of the available AI models. Please check your API key."
 
     def extract_citations(self, answer: str, docs: list[Document]) -> list[Document]:
         """Extracts cited documents from the answer based on [n] patterns."""
