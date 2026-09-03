@@ -47,6 +47,8 @@ class Generator:
             "llama3-70b-8192"
         ]
 
+        last_error = None
+
         for model in models_to_try:
             try:
                 response = self.client.chat.completions.create(
@@ -57,9 +59,15 @@ class Generator:
                 )
                 return response.choices[0].message.content
             except Exception as e:
+                last_error = e
                 print(f"Model {model} failed: {e}")
                 continue
 
+        if last_error is not None:
+            return (
+                "Error: I couldn't connect to any of the available AI models. "
+                f"Last error: {last_error}"
+            )
         return "Error: I couldn't connect to any of the available AI models. Please check your API key."
 
     def extract_citations(self, answer: str, docs: list[Document]) -> list[Document]:

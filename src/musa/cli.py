@@ -27,7 +27,7 @@ def ask(query: str) -> None:
 
     try:
         config = Config()
-        api_key = config.anthropic_api_key
+        api_key = config.groq_api_key
     except EnvironmentError as e:
         console.print(f"[red]Error:[/red] {e}")
         return

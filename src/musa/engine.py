@@ -1,3 +1,5 @@
+import os
+
 from musa.storage.database import Database
 from musa.crawler.crawler import Crawler
 from musa.search.hybrid import HybridSearcher
@@ -27,15 +29,12 @@ class MusaEngine:
             return None, []
 
         # 2. Generate
-        import os
-        # Priority: Check Streamlit secrets first, then env vars
+        # Priority: Check env vars first, then Config (e.g. .env file)
         api_key = os.environ.get("GROQ_API_KEY")
         if not api_key:
-            # Fallback for local development if using a .env file
-            from musa.config import Config
             try:
                 api_key = Config().groq_api_key
-            except:
+            except EnvironmentError:
                 api_key = None
 
         if not api_key:

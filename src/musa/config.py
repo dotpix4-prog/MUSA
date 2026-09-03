@@ -13,3 +13,14 @@ class Config:
                 "Please set it to use the 'ask' command."
             )
         return key
+
+    @property
+    def groq_api_key(self) -> str:
+        """Returns the Groq API key or raises an EnvironmentError."""
+        key = os.environ.get("GROQ_API_KEY")
+        if not key:
+            raise EnvironmentError(
+                "GROQ_API_KEY environment variable is not set. "
+                "Get a free key at https://console.groq.com/keys"
+            )
+        return key
