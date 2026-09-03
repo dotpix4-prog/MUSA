@@ -15,7 +15,8 @@ class Database:
         # Make sure the data directory exists.
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.connection = sqlite3.connect(self.path)
+        # check_same_thread=False is required for Streamlit/Multi-threaded apps
+        self.connection = sqlite3.connect(self.path, check_same_thread=False)
 
         self._create_tables()
         self._init_faiss_index()
