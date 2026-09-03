@@ -5,3 +5,5 @@ streamlit
 typer
 rich
 beautifulsoup4
+sentence-transformers
+numpy
