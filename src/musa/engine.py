@@ -6,51 +6,153 @@ from musa.search.hybrid import HybridSearcher
 from musa.search.generator import Generator
 from musa.config import Config
 
+
 class MusaEngine:
+
     def __init__(self):
         self.config = Config()
         self.database = Database()
 
-    def crawl(self, url: str, max_pages: int = 10):
+    def crawl(
+        self,
+        url,
+        max_pages=10,
+        max_depth=2,
+    ):
         import asyncio
-        crawler = Crawler(self.database, max_pages=max_pages)
-        return asyncio.run(crawler.crawl(url))
 
-    def search(self, query: str, top_n: int = 5):
-        searcher = HybridSearcher(self.database)
-        return searcher.search(query, top_n=top_n)
+        crawler = Crawler(
+            self.database,
+            max_pages=max_pages,
+            max_depth=max_depth,
+        )
 
-    def ask(self, query: str):
+        return asyncio.run(
+            crawler.crawl(url)
+        )
+
+    def search(
+        self,
+        query,
+        top_n=5,
+    ):
+        searcher = HybridSearcher(
+            self.database
+        )
+
+        return searcher.search(
+            query,
+            top_n=top_n,
+        )
+
+    def ask(
+        self,
+        query,
+    ):
+
+        # -----------------------------------------------------
         # 1. Retrieve
-        searcher = HybridSearcher(self.database)
-        docs = searcher.search(query, top_n=5)
+        # -----------------------------------------------------
+        searcher = HybridSearcher(
+            self.database
+        )
+
+        docs = searcher.search(
+            query,
+            top_n=5,
+        )
 
         if not docs:
-            return None, []
+            return (
+                "I could not find any relevant indexed sources.",
+                [],
+            )
 
-        # 2. Generate
-        # Priority: Check env vars first, then Config (e.g. .env file)
-        api_key = os.environ.get("GROQ_API_KEY")
+        # Helpful server-side debugging.
+        print(
+            "[SEARCH] Query: {}".format(
+                query
+            ),
+            flush=True,
+        )
+
+        for i, doc in enumerate(
+            docs,
+            1,
+        ):
+
+            print(
+                "[SEARCH] #{} {} | score={}".format(
+                    i,
+                    doc.title,
+                    getattr(
+                        doc,
+                        "score",
+                        None,
+                    ),
+                ),
+                flush=True,
+            )
+
+        # -----------------------------------------------------
+        # 2. API key
+        # -----------------------------------------------------
+        api_key = os.environ.get(
+            "GROQ_API_KEY"
+        )
+
         if not api_key:
+
             try:
-                api_key = Config().groq_api_key
+                api_key = (
+                    Config()
+                    .groq_api_key
+                )
+
             except EnvironmentError:
+
                 api_key = None
 
         if not api_key:
-            return "Error: GROQ_API_KEY not found in environment secrets.", []
 
-        generator = Generator(api_key)
-        answer = generator.generate_answer(query, docs)
+            return (
+                "Error: GROQ_API_KEY not found in environment secrets.",
+                [],
+            )
 
-        # 3. Cite
-        citations = generator.extract_citations(answer, docs)
+        # -----------------------------------------------------
+        # 3. Generate
+        # -----------------------------------------------------
+        generator = Generator(
+            api_key
+        )
 
-        return answer, citations
+        answer = generator.generate_answer(
+            query,
+            docs,
+        )
+
+        # -----------------------------------------------------
+        # 4. Citations
+        # -----------------------------------------------------
+        citations = (
+            generator.extract_citations(
+                answer,
+                docs,
+            )
+        )
+
+        return (
+            answer,
+            citations,
+        )
 
     def get_stats(self):
         return {
-            "document_count": self.database.count_documents()
+            "document_count": (
+                self.database
+                .count_documents()
+            )
         }
 
     def clear_index(self):
