@@ -2,107 +2,318 @@ import re
 
 from groq import Groq
 
-from musa.storage.models import Document
-
 
 class Generator:
-    """Handles LLM-based answer generation using a RAG pipeline via Groq."""
+    """
+    Generates answers from retrieved MUSA sources.
 
-    # Hard limits to prevent oversized Groq requests.
+    MUSA can explicitly control the output language instead
+    of allowing the language of the retrieved source to leak
+    into the answer.
+    """
+
     MAX_DOCUMENTS = 5
-    MAX_CHARS_PER_DOCUMENT = 5000
-    MAX_TOTAL_CONTEXT_CHARS = 18000
+    CHUNK_SIZE = 1800
+    CHUNK_OVERLAP = 250
+    MAX_CHUNKS = 7
+    MAX_TOTAL_CONTEXT = 16000
+
+    SUPPORTED_LANGUAGES = {
+        "English": "English",
+        "German": "German",
+        "Urdu": "Urdu",
+        "Spanish": "Spanish",
+        "French": "French",
+    }
 
     def __init__(self, api_key):
-        self.client = Groq(api_key=api_key)
-
-        self.system_prompt = (
-            "You are a helpful and precise search assistant. "
-            "Use the provided context to answer the user's query.\n\n"
-            "Rules:\n"
-            "1. Be concise and accurate.\n"
-            "2. Use ONLY the provided context. Do not use outside knowledge.\n"
-            "3. Cite sources using [1], [2], etc., based on the source "
-            "numbering provided in the context.\n"
-            "4. If the answer is not contained within the context, "
-            "state clearly that you do not know.\n"
-            "5. Format your response in Markdown."
+        self.client = Groq(
+            api_key=api_key
         )
 
-    def _trim_document(self, content):
-        """
-        Trim a document so large webpages cannot consume the entire
-        LLM context window.
-        """
+        self.base_system_prompt = (
+            "You are MUSA, a precise search assistant.\n\n"
+            "You must answer the user's question using ONLY "
+            "the provided indexed sources.\n\n"
+            "Rules:\n"
+            "1. Be accurate and concise.\n"
+            "2. Never invent facts.\n"
+            "3. Do not use outside knowledge.\n"
+            "4. Cite factual claims using [1], [2], etc.\n"
+            "5. Only cite a source when that source supports "
+            "the claim.\n"
+            "6. If the answer is not contained in the supplied "
+            "sources, clearly say that the information could "
+            "not be found in the indexed sources.\n"
+            "7. Format the answer using Markdown.\n"
+        )
 
-        if not content:
-            return ""
-
-        content = str(content).strip()
-
-        if len(content) <= self.MAX_CHARS_PER_DOCUMENT:
-            return content
-
-        # Keep the beginning and end because useful information can
-        # appear in either place.
-        half = self.MAX_CHARS_PER_DOCUMENT // 2
+    def _build_system_prompt(self, language):
+        language = self.SUPPORTED_LANGUAGES.get(
+            language,
+            "English",
+        )
 
         return (
-            content[:half]
-            + "\n\n[...content truncated...]\n\n"
-            + content[-half:]
+            self.base_system_prompt
+            + "\n"
+            + "LANGUAGE REQUIREMENT:\n"
+            + "Write the ENTIRE answer in {}.\n".format(
+                language
+            )
+            + "Do not switch languages because the source "
+            "documents are written in another language.\n"
+            + "Source text may be in any language, but your "
+            "final answer must be entirely in {}.\n".format(
+                language
+            )
+            + "Keep names, titles, URLs and citation markers "
+            "such as [1] unchanged when appropriate."
         )
 
-    def _format_context(self, docs):
-        """
-        Formats only a limited amount of retrieved content into the prompt.
-        """
+    def _tokenize(self, text):
+        return set(
+            re.findall(
+                r"\b[a-zA-Z0-9_\-]{2,}\b",
+                str(text).lower(),
+            )
+        )
 
-        context_parts = []
-        total_chars = 0
+    def _make_chunks(self, text):
+        if not text:
+            return []
 
-        # Never send more than MAX_DOCUMENTS to the LLM.
-        selected_docs = docs[: self.MAX_DOCUMENTS]
+        text = str(text).strip()
 
-        for i, doc in enumerate(selected_docs, 1):
+        if len(text) <= self.CHUNK_SIZE:
+            return [text]
 
-            title = getattr(
-                doc,
-                "title",
-                "",
-            ) or "Untitled"
+        chunks = []
 
-            url = getattr(
-                doc,
-                "url",
-                "",
-            ) or ""
+        start = 0
+        text_length = len(text)
 
-            content = getattr(
-                doc,
-                "content",
-                "",
-            ) or ""
+        while start < text_length:
 
-            content = self._trim_document(
+            end = min(
+                start + self.CHUNK_SIZE,
+                text_length,
+            )
+
+            chunk = text[
+                start:end
+            ].strip()
+
+            if chunk:
+                chunks.append(chunk)
+
+            if end >= text_length:
+                break
+
+            start = max(
+                0,
+                end - self.CHUNK_OVERLAP,
+            )
+
+        return chunks
+
+    def _score_chunk(
+        self,
+        query,
+        chunk,
+        title,
+    ):
+        query_lower = (
+            str(query)
+            .lower()
+            .strip()
+        )
+
+        chunk_lower = (
+            str(chunk)
+            .lower()
+        )
+
+        title_lower = (
+            str(title or "")
+            .lower()
+        )
+
+        query_tokens = self._tokenize(
+            query_lower
+        )
+
+        chunk_tokens = self._tokenize(
+            chunk_lower
+        )
+
+        if not query_tokens:
+            return 0.0
+
+        score = 0.0
+
+        # Exact question/phrase.
+        if query_lower in chunk_lower:
+            score += 30.0
+
+        matched = 0
+
+        for token in query_tokens:
+
+            if token in chunk_tokens:
+                score += 5.0
+                matched += 1
+
+            if token in title_lower:
+                score += 8.0
+
+        if query_tokens:
+            coverage = (
+                matched
+                / len(query_tokens)
+            )
+
+            score += (
+                coverage * 20.0
+            )
+
+        return score
+
+    def _select_relevant_chunks(
+        self,
+        query,
+        docs,
+    ):
+        candidates = []
+
+        selected_docs = docs[
+            :self.MAX_DOCUMENTS
+        ]
+
+        for source_number, doc in enumerate(
+            selected_docs,
+            1,
+        ):
+
+            title = (
+                getattr(
+                    doc,
+                    "title",
+                    "",
+                )
+                or "Untitled"
+            )
+
+            url = (
+                getattr(
+                    doc,
+                    "url",
+                    "",
+                )
+                or ""
+            )
+
+            content = (
+                getattr(
+                    doc,
+                    "content",
+                    "",
+                )
+                or ""
+            )
+
+            chunks = self._make_chunks(
                 content
             )
 
-            # Calculate the approximate size this source would add.
-            part = (
-                "Source [{}]: {}\n"
-                "URL: {}\n"
-                "Content: {}\n"
-            ).format(
-                i,
-                title,
-                url,
-                content,
+            for chunk_number, chunk in enumerate(
+                chunks
+            ):
+
+                score = self._score_chunk(
+                    query,
+                    chunk,
+                    title,
+                )
+
+                candidates.append(
+                    {
+                        "score": score,
+                        "source_number": source_number,
+                        "chunk_number": chunk_number,
+                        "title": title,
+                        "url": url,
+                        "text": chunk,
+                    }
+                )
+
+        candidates.sort(
+            key=lambda item: item["score"],
+            reverse=True,
+        )
+
+        selected = []
+        source_counts = {}
+
+        for item in candidates:
+
+            source = item[
+                "source_number"
+            ]
+
+            count = source_counts.get(
+                source,
+                0,
             )
 
-            # Enforce the total context limit.
+            if count >= 3:
+                continue
+
+            selected.append(
+                item
+            )
+
+            source_counts[source] = (
+                count + 1
+            )
+
+            if len(selected) >= self.MAX_CHUNKS:
+                break
+
+        return selected
+
+    def _format_context(
+        self,
+        query,
+        docs,
+    ):
+        chunks = self._select_relevant_chunks(
+            query,
+            docs,
+        )
+
+        if not chunks:
+            return ""
+
+        parts = []
+        total_chars = 0
+
+        for item in chunks:
+
+            part = (
+                "Source [{}]\n"
+                "Title: {}\n"
+                "URL: {}\n"
+                "Passage:\n{}\n"
+            ).format(
+                item["source_number"],
+                item["title"],
+                item["url"],
+                item["text"],
+            )
+
             remaining = (
-                self.MAX_TOTAL_CONTEXT_CHARS
+                self.MAX_TOTAL_CONTEXT
                 - total_chars
             )
 
@@ -110,68 +321,52 @@ class Generator:
                 break
 
             if len(part) > remaining:
+                part = part[:remaining]
 
-                # Keep the source metadata and as much content
-                # as fits within the remaining budget.
-                header = (
-                    "Source [{}]: {}\n"
-                    "URL: {}\n"
-                    "Content: "
-                ).format(
-                    i,
-                    title,
-                    url,
-                )
-
-                available = (
-                    remaining
-                    - len(header)
-                    - len("\n")
-                )
-
-                if available <= 0:
-                    break
-
-                content = content[:available]
-
-                part = (
-                    header
-                    + content
-                    + "\n"
-                )
-
-            context_parts.append(part)
+            parts.append(part)
             total_chars += len(part)
 
         return "\n---\n".join(
-            context_parts
+            parts
         )
 
-    def generate_answer(self, query, docs):
-        """
-        Generates an answer from a limited amount of retrieved context.
-        """
+    def generate_answer(
+        self,
+        query,
+        docs,
+        language="English",
+    ):
 
         if not docs:
             return (
-                "I couldn't find any relevant information "
-                "in the indexed documents."
+                "I could not find any relevant indexed sources."
             )
 
         context = self._format_context(
-            docs
+            query,
+            docs,
+        )
+
+        if not context:
+            return (
+                "I could not find any relevant passages "
+                "in the indexed sources."
+            )
+
+        system_prompt = self._build_system_prompt(
+            language
         )
 
         messages = [
             {
                 "role": "system",
-                "content": self.system_prompt,
+                "content": system_prompt,
             },
             {
                 "role": "user",
                 "content": (
-                    "Query: {}\n\n"
-                    "Context:\n{}"
+                    "Question:\n{}\n\n"
+                    "Indexed context:\n{}"
                 ).format(
                     query,
                     context,
@@ -179,7 +374,6 @@ class Generator:
             },
         ]
 
-        # Current Groq model IDs.
         models_to_try = [
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
@@ -193,7 +387,7 @@ class Generator:
             try:
 
                 print(
-                    "[LLM] Trying model: {}".format(
+                    "[LLM] Trying {}".format(
                         model
                     ),
                     flush=True,
@@ -211,54 +405,46 @@ class Generator:
                     )
                 )
 
-                content = (
+                answer = (
                     response
                     .choices[0]
                     .message
                     .content
                 )
 
-                if content:
-                    return content
-
-                last_error = (
-                    "Model returned an empty response."
-                )
+                if answer:
+                    return answer
 
             except Exception as e:
 
                 last_error = e
 
                 print(
-                    "[LLM ERROR] {} failed: {}".format(
+                    "[LLM ERROR] {}: {}".format(
                         model,
                         e,
                     ),
                     flush=True,
                 )
 
-                # Try the next available model.
-                continue
-
-        if last_error is not None:
+        if last_error:
 
             return (
-                "Error: I couldn't connect to any of the "
-                "available AI models. Last error: {}".format(
+                "Error: MUSA could not generate an answer. "
+                "Last error: {}".format(
                     last_error
                 )
             )
 
         return (
-            "Error: I couldn't connect to any of the "
-            "available AI models."
+            "Error: MUSA could not generate an answer."
         )
 
-    def extract_citations(self, answer, docs):
-        """
-        Extract [1], [2], etc. citations from the generated answer.
-        """
-
+    def extract_citations(
+        self,
+        answer,
+        docs,
+    ):
         if not answer:
             return []
 
@@ -269,18 +455,24 @@ class Generator:
 
         cited_docs = []
 
-        for idx_str in cited_indices:
+        for index_string in cited_indices:
 
             try:
-                idx = int(idx_str)
+                index = int(
+                    index_string
+                )
             except ValueError:
                 continue
 
-            if 1 <= idx <= len(docs):
+            if 1 <= index <= len(docs):
 
-                doc = docs[idx - 1]
+                doc = docs[
+                    index - 1
+                ]
 
                 if doc not in cited_docs:
-                    cited_docs.append(doc)
+                    cited_docs.append(
+                        doc
+                    )
 
         return cited_docs

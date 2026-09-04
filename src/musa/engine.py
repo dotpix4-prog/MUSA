@@ -48,11 +48,9 @@ class MusaEngine:
     def ask(
         self,
         query,
+        language="English",
     ):
 
-        # -----------------------------------------------------
-        # 1. Retrieve
-        # -----------------------------------------------------
         searcher = HybridSearcher(
             self.database
         )
@@ -68,7 +66,6 @@ class MusaEngine:
                 [],
             )
 
-        # Helpful server-side debugging.
         print(
             "[SEARCH] Query: {}".format(
                 query
@@ -94,9 +91,6 @@ class MusaEngine:
                 flush=True,
             )
 
-        # -----------------------------------------------------
-        # 2. API key
-        # -----------------------------------------------------
         api_key = os.environ.get(
             "GROQ_API_KEY"
         )
@@ -105,24 +99,19 @@ class MusaEngine:
 
             try:
                 api_key = (
-                    Config()
+                    self.config
                     .groq_api_key
                 )
-
-            except EnvironmentError:
-
+            except Exception:
                 api_key = None
 
         if not api_key:
 
             return (
-                "Error: GROQ_API_KEY not found in environment secrets.",
+                "Error: GROQ_API_KEY not found.",
                 [],
             )
 
-        # -----------------------------------------------------
-        # 3. Generate
-        # -----------------------------------------------------
         generator = Generator(
             api_key
         )
@@ -130,11 +119,9 @@ class MusaEngine:
         answer = generator.generate_answer(
             query,
             docs,
+            language=language,
         )
 
-        # -----------------------------------------------------
-        # 4. Citations
-        # -----------------------------------------------------
         citations = (
             generator.extract_citations(
                 answer,
