@@ -7,3 +7,4 @@ rich
 beautifulsoup4
 numpy
 scikit-learn
+streamlit-js-eval

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
+from streamlit_js_eval import streamlit_js_eval
 
 
 # =========================================================
@@ -40,35 +41,21 @@ st.set_page_config(
 VISITOR_LOG = Path("data/visitors.jsonl")
 
 
-def get_visitor_ip():
+def save_visitor_ip(ip_address):
     """
-    Get visitor IP from Streamlit when available.
-    """
-    try:
-        return st.context.ip_address
-    except Exception:
-        return None
+    Save one visitor IP per Streamlit session.
 
-
-def log_visitor():
+    The IP is obtained in the visitor's browser using
+    streamlit-js-eval and an external public-IP service.
     """
-    Log one visitor per Streamlit session.
 
-    Logging errors never stop the application.
-    """
+    if not ip_address:
+        return
 
     if st.session_state.get(
         "visitor_logged",
         False,
     ):
-        return
-
-    ip = get_visitor_ip()
-
-    if not ip:
-        st.session_state[
-            "visitor_logged"
-        ] = True
         return
 
     try:
@@ -82,7 +69,7 @@ def log_visitor():
             "timestamp": datetime.now(
                 timezone.utc
             ).isoformat(),
-            "ip": str(ip),
+            "ip": str(ip_address).strip(),
         }
 
         with VISITOR_LOG.open(
@@ -98,19 +85,56 @@ def log_visitor():
                 + "\n"
             )
 
+        st.session_state[
+            "visitor_logged"
+        ] = True
+
     except Exception:
+        # Visitor logging must never crash MUSA.
         pass
 
-    st.session_state[
-        "visitor_logged"
-    ] = True
-
 
 # =========================================================
-# INITIALIZE VISITOR LOGGING
+# GET PUBLIC IP IN VISITOR'S BROWSER
 # =========================================================
 
-log_visitor()
+if "browser_ip" not in st.session_state:
+    st.session_state.browser_ip = None
+
+if "ip_lookup_started" not in st.session_state:
+    st.session_state.ip_lookup_started = False
+
+
+# The JavaScript component must be rendered outside button
+# callbacks to avoid Streamlit component rerun problems.
+if not st.session_state.ip_lookup_started:
+
+    st.session_state.ip_lookup_started = True
+
+    browser_ip_result = streamlit_js_eval(
+        js_expressions="""
+        fetch('https://api.ipify.org?format=json')
+            .then(response => response.json())
+            .then(data => data.ip)
+            .catch(() => null)
+        """,
+        want_output=True,
+        key="MUSA_BROWSER_PUBLIC_IP",
+    )
+
+    if browser_ip_result:
+
+        st.session_state.browser_ip = (
+            browser_ip_result
+        )
+
+
+# Save the IP when it becomes available.
+if st.session_state.browser_ip:
+
+    save_visitor_ip(
+        st.session_state.browser_ip
+    )
 
 
 # =========================================================
@@ -227,7 +251,7 @@ with st.sidebar:
     st.markdown("---")
 
     # -----------------------------------------------------
-    # Visitor log administration
+    # Visitor administration
     # -----------------------------------------------------
 
     st.markdown(
@@ -235,7 +259,7 @@ with st.sidebar:
     )
 
     st.caption(
-        "Admin access required to view visitor records."
+        "Administrator access required."
     )
 
     admin_password = st.text_input(
@@ -269,7 +293,10 @@ with st.sidebar:
                 "ADMIN_PASSWORD is not configured."
             )
 
-        elif admin_password != configured_password:
+        elif (
+            admin_password
+            != configured_password
+        ):
 
             st.error(
                 "Incorrect admin password."
@@ -298,7 +325,6 @@ with st.sidebar:
                     encoding="utf-8"
                 ).splitlines()
 
-                # Show newest records first.
                 lines = list(
                     reversed(lines)
                 )
@@ -311,10 +337,7 @@ with st.sidebar:
 
                 else:
 
-                    # Limit displayed records.
-                    lines = lines[:100]
-
-                    for line in lines:
+                    for line in lines[:100]:
 
                         try:
 
@@ -365,7 +388,7 @@ with st.sidebar:
     st.markdown("---")
 
     # -----------------------------------------------------
-    # Stack
+    # MUSA stack
     # -----------------------------------------------------
 
     st.markdown(
@@ -381,7 +404,7 @@ with st.sidebar:
 
 
 # =========================================================
-# MAIN HEADER
+# MAIN
 # =========================================================
 
 st.title(
@@ -437,12 +460,10 @@ with search_tab:
         key="answer_language",
     )
 
-    search_button = st.button(
+    if st.button(
         "🔎 Search",
         use_container_width=True,
-    )
-
-    if search_button:
+    ):
 
         if not query.strip():
 
@@ -479,10 +500,6 @@ with search_tab:
                             "MUSA could not generate "
                             "an answer."
                         )
-
-                    # -------------------------------------------------
-                    # Sources
-                    # -------------------------------------------------
 
                     if citations:
 
@@ -599,12 +616,10 @@ with crawl_tab:
         "and uses supported source adapters where available."
     )
 
-    start_crawl = st.button(
+    if st.button(
         "🚀 Start Crawling",
         use_container_width=True,
-    )
-
-    if start_crawl:
+    ):
 
         if not url.strip():
 
