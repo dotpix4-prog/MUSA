@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import json
 import os
 import sys
@@ -17,7 +18,6 @@ SRC_DIR = Path(__file__).resolve().parent.parent
 
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
-
 
 from musa.engine import MusaEngine
 from musa.crawler.crawler import Crawler
@@ -41,25 +41,44 @@ st.set_page_config(
 VISITOR_LOG = Path("data/visitors.jsonl")
 
 
-def save_visitor_ip(ip_address):
-    """
-    Save one visitor IP per Streamlit session.
+def is_public_ip(value):
+    """Return True only when value is a public IP address."""
 
-    The IP is obtained in the visitor's browser using
-    streamlit-js-eval and an external public-IP service.
+    if not value:
+        return False
+
+    try:
+        ip = ipaddress.ip_address(
+            str(value).strip()
+        )
+
+        return (
+            not ip.is_private
+            and not ip.is_loopback
+            and not ip.is_reserved
+            and not ip.is_link_local
+            and not ip.is_unspecified
+        )
+
+    except ValueError:
+        return False
+
+
+def save_visitor_ip(ip_address, source="browser"):
+    """
+    Save one valid public IP per Streamlit session.
     """
 
-    if not ip_address:
-        return
+    if not is_public_ip(ip_address):
+        return False
 
     if st.session_state.get(
         "visitor_logged",
         False,
     ):
-        return
+        return True
 
     try:
-
         VISITOR_LOG.parent.mkdir(
             parents=True,
             exist_ok=True,
@@ -70,6 +89,7 @@ def save_visitor_ip(ip_address):
                 timezone.utc
             ).isoformat(),
             "ip": str(ip_address).strip(),
+            "source": source,
         }
 
         with VISITOR_LOG.open(
@@ -89,51 +109,70 @@ def save_visitor_ip(ip_address):
             "visitor_logged"
         ] = True
 
+        return True
+
     except Exception:
-        # Visitor logging must never crash MUSA.
-        pass
+        # Logging must never break the app.
+        return False
 
 
 # =========================================================
-# GET PUBLIC IP IN VISITOR'S BROWSER
+# BROWSER PUBLIC IP LOOKUP
 # =========================================================
 
 if "browser_ip" not in st.session_state:
     st.session_state.browser_ip = None
 
-if "ip_lookup_started" not in st.session_state:
-    st.session_state.ip_lookup_started = False
+
+if "ip_lookup_complete" not in st.session_state:
+    st.session_state.ip_lookup_complete = False
 
 
-# The JavaScript component must be rendered outside button
-# callbacks to avoid Streamlit component rerun problems.
-if not st.session_state.ip_lookup_started:
-
-    st.session_state.ip_lookup_started = True
+if not st.session_state.ip_lookup_complete:
 
     browser_ip_result = streamlit_js_eval(
         js_expressions="""
-        fetch('https://api.ipify.org?format=json')
-            .then(response => response.json())
-            .then(data => data.ip)
-            .catch(() => null)
+        fetch("https://api64.ipify.org?format=json")
+            .then(function(response) {
+                if (!response.ok) {
+                    return null;
+                }
+                return response.json();
+            })
+            .then(function(data) {
+                if (!data) {
+                    return null;
+                }
+                return data.ip || null;
+            })
+            .catch(function() {
+                return null;
+            });
         """,
         want_output=True,
-        key="MUSA_BROWSER_PUBLIC_IP",
+        key="MUSA_PUBLIC_IP_LOOKUP",
     )
 
     if browser_ip_result:
 
-        st.session_state.browser_ip = (
+        if is_public_ip(
             browser_ip_result
-        )
+        ):
+
+            st.session_state.browser_ip = (
+                str(browser_ip_result).strip()
+            )
+
+        st.session_state.ip_lookup_complete = True
 
 
-# Save the IP when it becomes available.
-if st.session_state.browser_ip:
+if st.session_state.get(
+    "browser_ip"
+):
 
     save_visitor_ip(
-        st.session_state.browser_ip
+        st.session_state.browser_ip,
+        source="browser",
     )
 
 
@@ -168,13 +207,11 @@ st.markdown(
 
 
 # =========================================================
-# ENGINE
+# MUSA ENGINE
 # =========================================================
 
 if "engine" not in st.session_state:
-
     st.session_state.engine = MusaEngine()
-
 
 engine = st.session_state.engine
 
@@ -251,7 +288,7 @@ with st.sidebar:
     st.markdown("---")
 
     # -----------------------------------------------------
-    # Visitor administration
+    # Visitor logs
     # -----------------------------------------------------
 
     st.markdown(
@@ -325,6 +362,7 @@ with st.sidebar:
                     encoding="utf-8"
                 ).splitlines()
 
+                # Newest records first.
                 lines = list(
                     reversed(lines)
                 )
@@ -355,10 +393,16 @@ with st.sidebar:
                                 "Unknown",
                             )
 
+                            source = record.get(
+                                "source",
+                                "Unknown",
+                            )
+
                             st.code(
-                                "{} | {}".format(
+                                "{} | {} | {}".format(
                                     timestamp,
                                     ip,
+                                    source,
                                 ),
                                 language="text",
                             )
@@ -388,7 +432,7 @@ with st.sidebar:
     st.markdown("---")
 
     # -----------------------------------------------------
-    # MUSA stack
+    # Stack
     # -----------------------------------------------------
 
     st.markdown(
@@ -404,7 +448,7 @@ with st.sidebar:
 
 
 # =========================================================
-# MAIN
+# MAIN HEADER
 # =========================================================
 
 st.title(
@@ -500,6 +544,10 @@ with search_tab:
                             "MUSA could not generate "
                             "an answer."
                         )
+
+                    # -------------------------------------------------
+                    # Sources
+                    # -------------------------------------------------
 
                     if citations:
 
