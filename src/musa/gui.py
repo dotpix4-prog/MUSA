@@ -42,7 +42,11 @@ VISITOR_LOG = Path("data/visitors.jsonl")
 
 
 def is_public_ip(value):
-    """Return True only when value is a public IP address."""
+    """
+    Return True only for a valid public IPv4/IPv6 address.
+    Rejects 127.0.0.1, private addresses, link-local addresses,
+    reserved addresses, etc.
+    """
 
     if not value:
         return False
@@ -79,6 +83,7 @@ def save_visitor_ip(ip_address, source="browser"):
         return True
 
     try:
+
         VISITOR_LOG.parent.mkdir(
             parents=True,
             exist_ok=True,
@@ -112,7 +117,7 @@ def save_visitor_ip(ip_address, source="browser"):
         return True
 
     except Exception:
-        # Logging must never break the app.
+        # Logging must never break MUSA.
         return False
 
 
@@ -122,7 +127,6 @@ def save_visitor_ip(ip_address, source="browser"):
 
 if "browser_ip" not in st.session_state:
     st.session_state.browser_ip = None
-
 
 if "ip_lookup_complete" not in st.session_state:
     st.session_state.ip_lookup_complete = False
@@ -166,6 +170,7 @@ if not st.session_state.ip_lookup_complete:
         st.session_state.ip_lookup_complete = True
 
 
+# Save the browser IP if available.
 if st.session_state.get(
     "browser_ip"
 ):
@@ -207,7 +212,7 @@ st.markdown(
 
 
 # =========================================================
-# MUSA ENGINE
+# ENGINE
 # =========================================================
 
 if "engine" not in st.session_state:
@@ -258,7 +263,7 @@ with st.sidebar:
     st.markdown("---")
 
     # -----------------------------------------------------
-    # Clear index
+    # Clear search index
     # -----------------------------------------------------
 
     if st.button(
@@ -271,7 +276,7 @@ with st.sidebar:
             engine.clear_index()
 
             st.success(
-                "Index cleared."
+                "Search index cleared."
             )
 
             st.rerun()
@@ -287,9 +292,9 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # -----------------------------------------------------
-    # Visitor logs
-    # -----------------------------------------------------
+    # =====================================================
+    # VISITOR LOG ADMINISTRATION
+    # =====================================================
 
     st.markdown(
         "### 🔐 Visitor Logs"
@@ -319,8 +324,12 @@ with st.sidebar:
             "",
         )
 
+    # -----------------------------------------------------
+    # View logs
+    # -----------------------------------------------------
+
     if st.button(
-        "View Visitor Logs",
+        "👁️ View Visitor Logs",
         use_container_width=True,
     ):
 
@@ -330,10 +339,7 @@ with st.sidebar:
                 "ADMIN_PASSWORD is not configured."
             )
 
-        elif (
-            admin_password
-            != configured_password
-        ):
+        elif admin_password != configured_password:
 
             st.error(
                 "Incorrect admin password."
@@ -344,6 +350,63 @@ with st.sidebar:
             st.session_state[
                 "show_visitor_logs"
             ] = True
+
+    # -----------------------------------------------------
+    # Clear logs
+    # -----------------------------------------------------
+
+    if st.button(
+        "🗑️ Clear Visitor Logs",
+        use_container_width=True,
+    ):
+
+        if not configured_password:
+
+            st.error(
+                "ADMIN_PASSWORD is not configured."
+            )
+
+        elif admin_password != configured_password:
+
+            st.error(
+                "Incorrect admin password."
+            )
+
+        else:
+
+            try:
+
+                if VISITOR_LOG.exists():
+                    VISITOR_LOG.unlink()
+
+                st.session_state[
+                    "show_visitor_logs"
+                ] = False
+
+                # Allow this same browser session to
+                # be recorded again after clearing.
+                st.session_state[
+                    "visitor_logged"
+                ] = False
+
+                st.success(
+                    "Visitor logs cleared."
+                )
+
+                st.rerun()
+
+            except Exception as e:
+
+                st.error(
+                    "Could not clear visitor logs: {}: {}".format(
+                        type(e).__name__,
+                        e,
+                    )
+                )
+
+    # -----------------------------------------------------
+    # Display logs
+    # -----------------------------------------------------
 
     if st.session_state.get(
         "show_visitor_logs",
@@ -432,7 +495,7 @@ with st.sidebar:
     st.markdown("---")
 
     # -----------------------------------------------------
-    # Stack
+    # Stack information
     # -----------------------------------------------------
 
     st.markdown(
@@ -687,6 +750,7 @@ with crawl_tab:
                     str(message)
                 )
 
+                # Prevent the UI from becoming enormous.
                 visible = logs[-150:]
 
                 log_area.code(
